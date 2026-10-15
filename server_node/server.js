@@ -5,15 +5,48 @@ const crypto = require('crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 
 const PORT = process.env.PORT || 8080;
-const WORKER_SECRET = process.env.WORKER_SECRET || process.env.WORKER_AUTH_KEY || '';
+const WORKER_SECRET = (process.env.WORKER_SECRET || process.env.WORKER_AUTH_KEY || '').trim();
+const JWT_SECRET = process.env.JWT_SECRET || WORKER_SECRET || 'datagate_live_relay_hmac_secret_2026';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // Constant-time SHA-256 secret comparison (anti-timing attack)
 function equalSecret(actual, expected) {
   if (typeof actual !== 'string' || typeof expected !== 'string') return false;
-  const actualHash = crypto.createHash('sha256').update(actual).digest();
-  const expectedHash = crypto.createHash('sha256').update(expected).digest();
+  const cleanActual = actual.trim();
+  const cleanExpected = expected.trim();
+  if (!cleanActual || !cleanExpected) return false;
+  const actualHash = crypto.createHash('sha256').update(cleanActual).digest();
+  const expectedHash = crypto.createHash('sha256').update(cleanExpected).digest();
   return crypto.timingSafeEqual(actualHash, expectedHash);
+}
+
+// Stateless HMAC signed tokens (survive server restarts)
+function createToken(email) {
+  const payload = {
+    email: email.trim().toLowerCase(),
+    created: Date.now()
+  };
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  if (activeSessions.has(token)) return activeSessions.get(token);
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('base64url');
+  if (sig.length !== expectedSig.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
+    if (Date.now() - payload.created > 7 * 86400 * 1000) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 // MIME types for static assets
@@ -183,7 +216,7 @@ const server = http.createServer((req, res) => {
         }
 
         if (challenge.status === 'approved') {
-          const accessToken = crypto.randomBytes(32).toString('hex');
+          const accessToken = createToken(challenge.email);
           const sessionId = 'sess_' + crypto.randomBytes(8).toString('hex');
 
           activeSessions.set(accessToken, { email: challenge.email, createdAt: Date.now() });
@@ -197,7 +230,7 @@ const server = http.createServer((req, res) => {
             data: {
               sessionId,
               accessToken,
-              expiresIn: 86400
+              expiresIn: 86400 * 7
             }
           }));
         }
@@ -213,7 +246,7 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/workers' && req.method === 'GET') {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/i, '') || parsedUrl.searchParams.get('token');
-    const session = activeSessions.get(token);
+    const session = verifyToken(token);
     if (!session || !ALLOWED_EMAILS.has(session.email)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: { message: 'Acesso negado. Autentique-se primeiro.' } }));
@@ -265,20 +298,29 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws, req) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const role = parsedUrl.searchParams.get('role');
+  const pathname = parsedUrl.pathname;
   const clientIp = getClientIp(req);
 
-  if (role === 'worker') {
+  // Robust Worker Identification
+  const isWorker = role === 'worker' ||
+                   pathname === '/ws/worker' ||
+                   pathname.endsWith('/worker') ||
+                   Boolean(parsedUrl.searchParams.get('workerId')) ||
+                   Boolean(req.headers['x-worker-secret']) ||
+                   Boolean(req.headers['x-worker-auth']);
+
+  if (isWorker) {
     // Validate Private Authentication Key (WORKER_SECRET)
     if (WORKER_SECRET) {
       const authHeader = req.headers['authorization'] || '';
-      const provided = req.headers['x-worker-secret'] ||
-                       req.headers['x-worker-auth'] ||
-                       authHeader.replace(/^Bearer\s+/i, '') ||
-                       parsedUrl.searchParams.get('token') ||
-                       parsedUrl.searchParams.get('secret') || '';
+      const provided = (req.headers['x-worker-secret'] ||
+                        req.headers['x-worker-auth'] ||
+                        authHeader.replace(/^Bearer\s+/i, '') ||
+                        parsedUrl.searchParams.get('token') ||
+                        parsedUrl.searchParams.get('secret') || '').trim();
 
       if (!equalSecret(provided, WORKER_SECRET)) {
-        console.warn(`[Security] ⛔ Tentativa de conexão rejeitada: chave inválida do IP ${clientIp}`);
+        console.warn(`[Security] ⛔ Conexão do worker rejeitada (chave inválida) do IP ${clientIp}. Chave recebida: ${provided ? 'presente (' + provided.length + ' chars)' : '(vazia)'}`);
         ws.close(4401, 'Unauthorized: Credencial x-worker-secret inválida');
         return;
       }
@@ -292,10 +334,10 @@ wss.on('connection', (ws, req) => {
     // Validate Viewer Session Token
     const viewerToken = parsedUrl.searchParams.get('token') ||
                         (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
-    const session = activeSessions.get(viewerToken);
+    const session = verifyToken(viewerToken);
 
     if (!session || !ALLOWED_EMAILS.has(session.email)) {
-      console.warn(`[Security] ⛔ Tentativa de conexão viewer rejeitada: token não autorizado do IP ${clientIp}`);
+      console.warn(`[Security] ⛔ Conexão viewer rejeitada: token não autorizado do IP ${clientIp}`);
       ws.close(4403, 'Forbidden: Sessão não autorizada');
       return;
     }

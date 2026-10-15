@@ -241,8 +241,15 @@
       availableWorkers = msg.workers || [];
       renderWorkersList(availableWorkers);
 
-      // If active worker is no longer online, update badge
-      if (selectedWorker) {
+      // Auto-conectar ao worker ativo se nenhum estiver selecionado
+      if (!selectedWorker && availableWorkers.length > 0) {
+        const active = availableWorkers.find(w => w.online) || availableWorkers[0];
+        if (active) {
+          console.log('[RemoteLive TV] Conectando automaticamente à estação:', active.name);
+          selectWorker(active.id);
+        }
+      } else if (selectedWorker) {
+        // If active worker is no longer online, update badge
         const stillOnline = availableWorkers.some(w => w.id === selectedWorker.id);
         if (!stillOnline) {
           activeWorkerName.textContent = `${selectedWorker.name} (Desconectado)`;
@@ -806,6 +813,32 @@
       specialKeysBtn.parentElement.classList.remove('open');
     });
   });
+
+  // Header Collapse Toggle (Maximize Space)
+  const toggleHeaderBtn = document.getElementById('toggleHeaderBtn');
+  const topBarTrigger = document.getElementById('topBarTrigger');
+  const mainHeader = document.getElementById('mainHeader');
+
+  if (toggleHeaderBtn) {
+    toggleHeaderBtn.addEventListener('click', () => {
+      appContainer.classList.add('header-collapsed');
+    });
+  }
+
+  if (topBarTrigger) {
+    topBarTrigger.addEventListener('click', () => {
+      mainHeader.classList.add('revealed');
+      setTimeout(() => {
+        mainHeader.classList.remove('revealed');
+      }, 6000);
+    });
+  }
+
+  if (mainHeader) {
+    mainHeader.addEventListener('dblclick', () => {
+      appContainer.classList.remove('header-collapsed');
+    });
+  }
 
   // Start app
   initAuth();

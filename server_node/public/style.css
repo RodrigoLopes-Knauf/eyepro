@@ -369,22 +369,29 @@ body.touch-optimized {
   color: #fff;
 }
 
-/* ==================== VIEWPORT & CANVAS ==================== */
+/* ==================== VIEWPORT & CANVAS (100% PREENCHIMENTO SEM BARRAS LATERAIS) ==================== */
 .viewport {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  background-color: #03060a;
+  background-color: #000;
   overflow: hidden;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
 }
 
 #screenCanvas {
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
-  object-fit: contain;
+  object-fit: fill; /* Preenche 100% da tela - elimina quaisquer bordas ou barras laterais */
   cursor: crosshair;
+  display: block;
 }
 
 /* Touch Ripple on Canvas */
@@ -407,21 +414,69 @@ body.touch-optimized {
   opacity: 1;
 }
 
+/* ==================== RECOLHIMENTO DA BARRA SUPERIOR ==================== */
+.app-container.header-collapsed .top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+}
+
+.app-container.header-collapsed .top-bar:hover,
+.app-container.header-collapsed .top-bar.revealed {
+  transform: translateY(0);
+}
+
+.top-bar-toggle-trigger {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  display: none;
+  cursor: pointer;
+  padding: 4px 14px;
+}
+
+.app-container.header-collapsed .top-bar-toggle-trigger {
+  display: block;
+}
+
+.top-bar-indicator-pill {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  padding: 4px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.top-bar-toggle-trigger:hover .top-bar-indicator-pill {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
 /* ==================== 100% IMMERSIVE FULLSCREEN MODE ==================== */
-.app-container.immersive-fullscreen .top-bar {
+.app-container.immersive-fullscreen .top-bar,
+.app-container.immersive-fullscreen .top-bar-toggle-trigger {
   display: none !important;
 }
 
-.app-container.immersive-fullscreen .floating-kb-trigger {
-  opacity: 0.25;
-  transform: scale(0.8);
-  transition: opacity 0.3s, transform 0.3s;
-}
-
-.app-container.immersive-fullscreen .floating-kb-trigger:hover,
-.app-container.immersive-fullscreen .floating-kb-trigger:active {
-  opacity: 1;
-  transform: scale(1);
+.floating-kb-trigger {
+  display: none !important; /* Desativado para manter a área de transmissão 100% limpa */
 }
 
 .app-container.immersive-fullscreen .viewport {
@@ -435,7 +490,7 @@ body.touch-optimized {
   height: 100vh;
   max-width: 100vw;
   max-height: 100vh;
-  object-fit: contain;
+  object-fit: fill; /* 100% tela cheia total */
 }
 
 /* Bottom Swipe Zone */
