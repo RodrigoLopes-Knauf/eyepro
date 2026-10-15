@@ -109,16 +109,10 @@
           </div>
         </div>
 
-        <button class="btn btn-action" id="toggleHeaderBtn" title="Ocultar barra superior para aproveitar 100% da tela">▲ Ocultar Barra</button>
         <button class="btn btn-action btn-fullscreen" id="fullscreenBtn" title="Colocar em 100% Tela Cheia sem distrações">⛶ 100% Tela Cheia</button>
         <button class="btn btn-danger btn-logout" id="logoutBtn" title="Sair da sessão">Sair</button>
       </div>
     </header>
-
-    <!-- Barra de gatilho para reexibir a barra superior quando recolhida -->
-    <div class="top-bar-toggle-trigger" id="topBarTrigger" title="Clique ou passe o mouse para mostrar os controles">
-      <div class="top-bar-indicator-pill">▼ Controles</div>
-    </div>
 
     <!-- Canvas Viewport -->
     <main class="viewport" id="viewport">
@@ -161,6 +155,11 @@
         </div>
       </div>
     </main>
+
+    <!-- Botão Flutuante de Atalho para Teclado TV -->
+    <button class="floating-kb-trigger" id="floatingKbTrigger" title="Abrir/Fechar Teclado Virtual">
+      ⌨️ Teclado TV
+    </button>
 
     <!-- ==================== TECLADO VIRTUAL PARA SMART TV & TOUCH ==================== -->
     <div class="virtual-keyboard-dock hidden" id="virtualKeyboard">

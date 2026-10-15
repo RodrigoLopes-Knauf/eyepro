@@ -201,10 +201,9 @@
   // ==================== WEBSOCKET & MULTI-WORKER ====================
   function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) return;
-    if (!authToken) return;
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}?role=viewer&token=${encodeURIComponent(authToken)}`;
+    const wsUrl = `${protocol}//${location.host}?role=viewer`;
 
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'blob';
@@ -221,18 +220,9 @@
       }
     };
 
-    ws.onclose = (event) => {
-      console.log('[RemoteLive TV] Relay disconnected. Code:', event.code);
-      if (event.code === 4403 || event.code === 4401) {
-        authToken = null;
-        localStorage.removeItem('datagate_token');
-        authScreen.classList.remove('hidden');
-        showAuthError('Sessão expirada ou não autorizada. Por favor, autentique-se novamente.');
-        return;
-      }
-      if (authToken) {
-        setTimeout(connectWebSocket, 2000);
-      }
+    ws.onclose = () => {
+      console.log('[RemoteLive TV] Relay disconnected. Retrying in 2s...');
+      setTimeout(connectWebSocket, 2000);
     };
   }
 
@@ -241,15 +231,8 @@
       availableWorkers = msg.workers || [];
       renderWorkersList(availableWorkers);
 
-      // Auto-conectar ao worker ativo se nenhum estiver selecionado
-      if (!selectedWorker && availableWorkers.length > 0) {
-        const active = availableWorkers.find(w => w.online) || availableWorkers[0];
-        if (active) {
-          console.log('[RemoteLive TV] Conectando automaticamente à estação:', active.name);
-          selectWorker(active.id);
-        }
-      } else if (selectedWorker) {
-        // If active worker is no longer online, update badge
+      // If active worker is no longer online, update badge
+      if (selectedWorker) {
         const stillOnline = availableWorkers.some(w => w.id === selectedWorker.id);
         if (!stillOnline) {
           activeWorkerName.textContent = `${selectedWorker.name} (Desconectado)`;
@@ -324,9 +307,7 @@
 
   refreshWorkersBtn.addEventListener('click', async () => {
     try {
-      const res = await fetch('/api/workers', {
-        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
-      });
+      const res = await fetch('/api/workers');
       const data = await res.json();
       if (data.workers) {
         availableWorkers = data.workers;
@@ -813,32 +794,6 @@
       specialKeysBtn.parentElement.classList.remove('open');
     });
   });
-
-  // Header Collapse Toggle (Maximize Space)
-  const toggleHeaderBtn = document.getElementById('toggleHeaderBtn');
-  const topBarTrigger = document.getElementById('topBarTrigger');
-  const mainHeader = document.getElementById('mainHeader');
-
-  if (toggleHeaderBtn) {
-    toggleHeaderBtn.addEventListener('click', () => {
-      appContainer.classList.add('header-collapsed');
-    });
-  }
-
-  if (topBarTrigger) {
-    topBarTrigger.addEventListener('click', () => {
-      mainHeader.classList.add('revealed');
-      setTimeout(() => {
-        mainHeader.classList.remove('revealed');
-      }, 6000);
-    });
-  }
-
-  if (mainHeader) {
-    mainHeader.addEventListener('dblclick', () => {
-      appContainer.classList.remove('header-collapsed');
-    });
-  }
 
   // Start app
   initAuth();

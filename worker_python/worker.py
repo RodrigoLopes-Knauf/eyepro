@@ -377,16 +377,15 @@ class RemoteScreenWorker:
                     "ping_timeout": 20
                 }
                 if headers:
-                    import inspect
-                    sig = inspect.signature(websockets.connect)
-                    if "additional_headers" in sig.parameters:
+                    # Support both websockets versions (extra_headers / additional_headers)
+                    try:
                         connect_kwargs["additional_headers"] = headers
-                    elif "extra_headers" in sig.parameters:
+                    except Exception:
                         connect_kwargs["extra_headers"] = headers
 
                 async with websockets.connect(self.relay_url, **connect_kwargs) as ws:
                     self.ws = ws
-                    logger.info(">>> CONECTADO COM SUCESSO! Transmitindo tela e recebendo comandos em tempo real. <<<")
+                    logger.info(">>> CONNECTED! Transmitting screen and receiving inputs in real time. <<<")
 
                     stream_task = asyncio.create_task(self.capture_stream_loop(ws, sct_instance, monitor))
                     receiver_task = asyncio.create_task(self.receiver_loop(ws, monitor["width"], monitor["height"]))
@@ -399,69 +398,35 @@ class RemoteScreenWorker:
                         task.cancel()
 
             except (websockets.exceptions.WebSocketException, OSError) as e:
-                logger.warning("Conexão perdida (%s). Tentando reconectar em 2 segundos...", e)
+                logger.warning("Connection lost (%s). Retrying in 2 seconds...", e)
                 await asyncio.sleep(2)
             except Exception as e:
-                logger.error("Erro inesperado: %s. Tentando reconectar em 2 segundos...", e)
+                logger.error("Unexpected error: %s. Retrying in 2 seconds...", e)
                 await asyncio.sleep(2)
 
 def main():
     import socket
     import urllib.parse
 
-    raw_url = (os.environ.get("RELAY_URL") or "ws://localhost:8080").strip()
-    if raw_url.startswith("https://"):
-        base_url = "wss://" + raw_url[8:]
-    elif raw_url.startswith("http://"):
-        base_url = "ws://" + raw_url[7:]
-    else:
-        base_url = raw_url
-
-    worker_id = (os.environ.get("WORKER_ID") or f"worker-{socket.gethostname().lower()}").strip()
-    worker_name = (os.environ.get("WORKER_NAME") or os.environ.get("WORKER_LABEL") or f"Estação ({socket.gethostname()})").strip()
-    auth_key = (os.environ.get("WORKER_SECRET") or os.environ.get("WORKER_AUTH_KEY") or "").strip()
+    base_url = os.environ.get("RELAY_URL", "ws://localhost:8080")
+    worker_id = os.environ.get("WORKER_ID", f"worker-{socket.gethostname().lower()}")
+    worker_name = os.environ.get("WORKER_NAME", f"Estação ({socket.gethostname()})")
+    auth_key = os.environ.get("WORKER_SECRET", os.environ.get("WORKER_AUTH_KEY", ""))
 
     if len(sys.argv) > 1:
         relay_url = sys.argv[1]
     else:
-        # Parse base_url preserving path and injecting query params
-        parsed = urllib.parse.urlparse(base_url)
-        query = urllib.parse.parse_qs(parsed.query)
-        query['role'] = ['worker']
-        query['workerId'] = [worker_id]
-        query['name'] = [worker_name]
+        encoded_name = urllib.parse.quote(worker_name)
+        params = ["role=worker", f"workerId={worker_id}", f"name={encoded_name}"]
         if auth_key:
-            query['token'] = [auth_key]
-            query['secret'] = [auth_key]
-
-        path = parsed.path
-        if not path or path == '/':
-            path = '/ws/worker'
-
-        new_query = urllib.parse.urlencode(query, doseq=True)
-        relay_url = urllib.parse.urlunparse((
-            parsed.scheme,
-            parsed.netloc,
-            path,
-            '',
-            new_query,
-            ''
-        ))
-
-    logger.info("=== Configuração do Worker ===")
-    logger.info("ID: %s", worker_id)
-    logger.info("Nome exibido: %s", worker_name)
-    logger.info("Destino: %s", relay_url)
-    if auth_key:
-        logger.info("Chave de autenticação: Configurada (%d caracteres)", len(auth_key))
-    else:
-        logger.warning("ATENÇÃO: WORKER_SECRET não foi preenchida no .env")
+            params.append(f"token={urllib.parse.quote(auth_key)}")
+        relay_url = f"{base_url.rstrip('/')}/?{'&'.join(params)}"
 
     worker = RemoteScreenWorker(relay_url, auth_key=auth_key)
     try:
         asyncio.run(worker.run())
     except KeyboardInterrupt:
-        logger.info("Worker encerrado pelo operador.")
+        logger.info("Worker stopped by user.")
 
 if __name__ == "__main__":
     main()
