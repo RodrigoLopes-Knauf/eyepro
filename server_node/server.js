@@ -27,6 +27,20 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
+// Whitelist of authorized corporate emails (Only lopesr@knauf.com by default)
+const ALLOWED_EMAILS = new Set(
+  (process.env.ALLOWED_EMAILS || process.env.ALLOWED_EMAIL || 'lopesr@knauf.com')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+function getClientIp(req) {
+  return req.headers['cf-connecting-ip'] ||
+         (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+         req.socket.remoteAddress || 'unknown';
+}
+
 // In-Memory Authentication State (Self-contained)
 const authChallenges = new Map(); // requestId -> { email, status: 'pending' | 'approved', createdAt }
 const activeSessions = new Map();   // sessionToken -> { email, createdAt }
@@ -98,6 +112,17 @@ const server = http.createServer((req, res) => {
           return res.end(JSON.stringify({ success: false, error: { message: 'E-mail corporativo inválido.' } }));
         }
 
+        // Server-side strict authorization check (not exposed to frontend)
+        if (!ALLOWED_EMAILS.has(email)) {
+          const clientIp = getClientIp(req);
+          console.warn(`[Security] ⛔ Tentativa de login negada para e-mail não autorizado: ${email} (IP: ${clientIp})`);
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({
+            success: false,
+            error: { message: 'Acesso negado. Este e-mail não possui permissão de acesso ao controle remoto.' }
+          }));
+        }
+
         const requestId = 'req_' + crypto.randomBytes(16).toString('hex');
         const challenge = {
           requestId,
@@ -144,7 +169,7 @@ const server = http.createServer((req, res) => {
         const email = (parsed.email || '').trim().toLowerCase();
 
         const challenge = authChallenges.get(requestId);
-        if (!challenge || challenge.email !== email) {
+        if (!challenge || challenge.email !== email || !ALLOWED_EMAILS.has(email)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ success: false, error: { message: 'Desafio de autenticação inválido ou expirado.' } }));
         }
@@ -163,6 +188,8 @@ const server = http.createServer((req, res) => {
 
           activeSessions.set(accessToken, { email: challenge.email, createdAt: Date.now() });
           authChallenges.delete(requestId); // Consome o desafio
+
+          console.log(`[Auth] Sessão autenticada criada para ${challenge.email} (${sessionId})`);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({
@@ -184,6 +211,14 @@ const server = http.createServer((req, res) => {
 
   // --- API: List Workers ---
   if (pathname === '/api/workers' && req.method === 'GET') {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '') || parsedUrl.searchParams.get('token');
+    const session = activeSessions.get(token);
+    if (!session || !ALLOWED_EMAILS.has(session.email)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: { message: 'Acesso negado. Autentique-se primeiro.' } }));
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       success: true,
@@ -230,6 +265,7 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws, req) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const role = parsedUrl.searchParams.get('role');
+  const clientIp = getClientIp(req);
 
   if (role === 'worker') {
     // Validate Private Authentication Key (WORKER_SECRET)
@@ -240,10 +276,6 @@ wss.on('connection', (ws, req) => {
                        authHeader.replace(/^Bearer\s+/i, '') ||
                        parsedUrl.searchParams.get('token') ||
                        parsedUrl.searchParams.get('secret') || '';
-
-      const clientIp = req.headers['cf-connecting-ip'] ||
-                       (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
-                       req.socket.remoteAddress;
 
       if (!equalSecret(provided, WORKER_SECRET)) {
         console.warn(`[Security] ⛔ Tentativa de conexão rejeitada: chave inválida do IP ${clientIp}`);
@@ -256,7 +288,19 @@ wss.on('connection', (ws, req) => {
     const workerName = parsedUrl.searchParams.get('name') || 'Estação Principal (Local)';
     handleWorkerConnection(ws, workerId, workerName);
   } else {
-    handleViewerConnection(ws);
+    // Role: Viewer (Smart TV / Web Browser)
+    // Validate Viewer Session Token
+    const viewerToken = parsedUrl.searchParams.get('token') ||
+                        (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+    const session = activeSessions.get(viewerToken);
+
+    if (!session || !ALLOWED_EMAILS.has(session.email)) {
+      console.warn(`[Security] ⛔ Tentativa de conexão viewer rejeitada: token não autorizado do IP ${clientIp}`);
+      ws.close(4403, 'Forbidden: Sessão não autorizada');
+      return;
+    }
+
+    handleViewerConnection(ws, session.email);
   }
 });
 
@@ -341,11 +385,12 @@ function handleWorkerConnection(ws, workerId, workerName) {
   });
 }
 
-function handleViewerConnection(ws) {
+function handleViewerConnection(ws, userEmail) {
   viewerSockets.add(ws);
   ws.targetWorkerId = null; // Worker selecionado pelo espectador
+  ws.userEmail = userEmail;
 
-  console.log(`[Viewer] Cliente conectado. Total de espectadores: ${viewerSockets.size}`);
+  console.log(`[Viewer] Cliente autenticado (${userEmail}) conectado. Total de espectadores: ${viewerSockets.size}`);
 
   // Envia a lista de workers imediatamente
   ws.send(JSON.stringify({

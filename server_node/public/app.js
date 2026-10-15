@@ -201,9 +201,10 @@
   // ==================== WEBSOCKET & MULTI-WORKER ====================
   function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (!authToken) return;
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}?role=viewer`;
+    const wsUrl = `${protocol}//${location.host}?role=viewer&token=${encodeURIComponent(authToken)}`;
 
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'blob';
@@ -220,9 +221,18 @@
       }
     };
 
-    ws.onclose = () => {
-      console.log('[RemoteLive TV] Relay disconnected. Retrying in 2s...');
-      setTimeout(connectWebSocket, 2000);
+    ws.onclose = (event) => {
+      console.log('[RemoteLive TV] Relay disconnected. Code:', event.code);
+      if (event.code === 4403 || event.code === 4401) {
+        authToken = null;
+        localStorage.removeItem('datagate_token');
+        authScreen.classList.remove('hidden');
+        showAuthError('Sessão expirada ou não autorizada. Por favor, autentique-se novamente.');
+        return;
+      }
+      if (authToken) {
+        setTimeout(connectWebSocket, 2000);
+      }
     };
   }
 
@@ -307,7 +317,9 @@
 
   refreshWorkersBtn.addEventListener('click', async () => {
     try {
-      const res = await fetch('/api/workers');
+      const res = await fetch('/api/workers', {
+        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+      });
       const data = await res.json();
       if (data.workers) {
         availableWorkers = data.workers;
