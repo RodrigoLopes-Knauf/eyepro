@@ -145,7 +145,6 @@ class RemoteScreenWorker:
         self.target_fps = 25
         self.jpeg_quality = 65
         self.scale = 0.75  # 75% resolution scale for balanced bandwidth & latency
-        self.zoom_wheel_remainder = 0.0
         self.running = True
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
 
@@ -221,19 +220,6 @@ class RemoteScreenWorker:
                 clicks = -int(delta_y / 100 * 120) if delta_y != 0 else 0
                 if clicks != 0:
                     u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, clicks, 0)
-
-            elif event_type == "zoom":
-                target_x, target_y = self.get_target_position(msg, monitor)
-                u32.SetCursorPos(target_x, target_y)
-                self.zoom_wheel_remainder += float(msg.get("delta", 0)) * 1.5
-                wheel_delta = int(self.zoom_wheel_remainder / 120) * 120
-                if wheel_delta:
-                    self.zoom_wheel_remainder -= wheel_delta
-                    pyautogui.keyDown("ctrl")
-                    try:
-                        u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheel_delta, 0)
-                    finally:
-                        pyautogui.keyUp("ctrl")
 
             elif event_type == "key_down":
                 key_code = msg.get("code")

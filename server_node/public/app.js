@@ -71,7 +71,7 @@
   const MOUSE_THROTTLE_MS = 16;
   let touchStartData = null;
   let longPressTimer = null;
-  let twoFingerGesture = null;
+  let twoFingerLastY = null;
 
   // --- Device Identification ---
   function getDeviceInfo() {
@@ -425,10 +425,8 @@
         clientX: touch.clientX,
         clientY: touch.clientY,
         coords: coords,
-        lastCoords: coords,
         time: performance.now(),
-        moved: false,
-        dragging: false
+        moved: false
       };
 
       // Long press (450ms) triggers native remote Right Click!
@@ -455,24 +453,9 @@
       }, 450);
 
     } else if (e.touches.length === 2) {
+      // 2 fingers: Scroll initiation
       if (longPressTimer) clearTimeout(longPressTimer);
-      if (touchStartData && touchStartData.dragging) {
-        sendWorkerEvent({
-          type: 'mouse_up',
-          button: 'left',
-          x: touchStartData.lastCoords.x,
-          y: touchStartData.lastCoords.y
-        });
-      }
-      touchStartData = null;
-      const [firstTouch, secondTouch] = e.touches;
-      twoFingerGesture = {
-        startY: (firstTouch.clientY + secondTouch.clientY) / 2,
-        lastY: (firstTouch.clientY + secondTouch.clientY) / 2,
-        startDistance: Math.hypot(firstTouch.clientX - secondTouch.clientX, firstTouch.clientY - secondTouch.clientY),
-        lastDistance: Math.hypot(firstTouch.clientX - secondTouch.clientX, firstTouch.clientY - secondTouch.clientY),
-        mode: null
-      };
+      twoFingerLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     }
   }, { passive: false });
 
@@ -486,15 +469,6 @@
       if (dist > 10) {
         touchStartData.moved = true;
         if (longPressTimer) clearTimeout(longPressTimer);
-        if (!touchStartData.dragging) {
-          touchStartData.dragging = true;
-          sendWorkerEvent({
-            type: 'mouse_down',
-            button: 'left',
-            x: touchStartData.coords.x,
-            y: touchStartData.coords.y
-          });
-        }
       }
 
       const now = performance.now();
@@ -502,7 +476,6 @@
         lastMouseMoveTime = now;
         const coords = getNormalizedCoordinates(touch.clientX, touch.clientY);
         if (coords) {
-          touchStartData.lastCoords = coords;
           sendWorkerEvent({
             type: 'mouse_move',
             x: coords.x,
@@ -510,41 +483,16 @@
           });
         }
       }
-    } else if (e.touches.length === 2 && twoFingerGesture) {
-      const [firstTouch, secondTouch] = e.touches;
-      const currentY = (firstTouch.clientY + secondTouch.clientY) / 2;
-      const currentDistance = Math.hypot(firstTouch.clientX - secondTouch.clientX, firstTouch.clientY - secondTouch.clientY);
-      const distanceChange = currentDistance - twoFingerGesture.lastDistance;
+    } else if (e.touches.length === 2 && twoFingerLastY !== null) {
+      // 2-finger scroll
+      const currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const deltaY = (twoFingerLastY - currentY) * 2.5;
+      twoFingerLastY = currentY;
 
-      if (!twoFingerGesture.mode) {
-        if (Math.abs(currentDistance - twoFingerGesture.startDistance) > 6) {
-          twoFingerGesture.mode = 'zoom';
-        } else if (Math.abs(currentY - twoFingerGesture.startY) > 6) {
-          twoFingerGesture.mode = 'scroll';
-        }
-      }
-
-      if (twoFingerGesture.mode === 'zoom' && Math.abs(distanceChange) > 0.5) {
-        const centerX = (firstTouch.clientX + secondTouch.clientX) / 2;
-        const centerY = (firstTouch.clientY + secondTouch.clientY) / 2;
-        const coords = getNormalizedCoordinates(centerX, centerY);
-        if (coords) {
-          sendWorkerEvent({
-            type: 'zoom',
-            delta: distanceChange,
-            x: coords.x,
-            y: coords.y
-          });
-        }
-      } else if (twoFingerGesture.mode === 'scroll') {
-        sendWorkerEvent({
-          type: 'scroll',
-          deltaY: (twoFingerGesture.lastY - currentY) * 2.5
-        });
-      }
-
-      twoFingerGesture.lastY = currentY;
-      twoFingerGesture.lastDistance = currentDistance;
+      sendWorkerEvent({
+        type: 'scroll',
+        deltaY: deltaY
+      });
     }
   }, { passive: false });
 
@@ -560,35 +508,10 @@
         x: touchStartData.coords.x,
         y: touchStartData.coords.y
       });
-    } else if (touchStartData && touchStartData.dragging) {
-      const touch = e.changedTouches[0];
-      const coords = touch
-        ? getNormalizedCoordinates(touch.clientX, touch.clientY)
-        : touchStartData.lastCoords;
-      sendWorkerEvent({
-        type: 'mouse_up',
-        button: 'left',
-        x: coords ? coords.x : touchStartData.lastCoords.x,
-        y: coords ? coords.y : touchStartData.lastCoords.y
-      });
     }
 
     touchStartData = null;
-    twoFingerGesture = null;
-  });
-
-  canvas.addEventListener('touchcancel', () => {
-    if (longPressTimer) clearTimeout(longPressTimer);
-    if (touchStartData && touchStartData.dragging) {
-      sendWorkerEvent({
-        type: 'mouse_up',
-        button: 'left',
-        x: touchStartData.lastCoords.x,
-        y: touchStartData.lastCoords.y
-      });
-    }
-    touchStartData = null;
-    twoFingerGesture = null;
+    twoFingerLastY = null;
   });
 
   // Standard Mouse Handlers (Air mouse / Wireless mouse on Smart TV)
