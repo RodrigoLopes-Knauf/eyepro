@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DataGate Remote Live | TV & Touch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="touch-optimized">
+  <div class="app-container" id="appContainer">
+
+    <!-- ==================== TELA DE LOGIN & AUTENTICAÇÃO ==================== -->
+    <div class="auth-screen" id="authScreen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-core">
+            <span class="live-dot"></span>
+          </div>
+          <h2>DataGate <span>Remote</span></h2>
+          <p class="auth-subtitle">Acesso Corporativo Seguro para Smart TV & Telas Touch</p>
+        </div>
+
+        <!-- Formulário de Email -->
+        <form id="loginForm" class="auth-form">
+          <label for="corporateEmail">E-mail corporativo:</label>
+          <div class="input-group">
+            <input 
+              type="email" 
+              id="corporateEmail" 
+              placeholder="seu.email@knauf.com" 
+              autocomplete="email" 
+              required
+            >
+          </div>
+          <div id="authErrorMsg" class="auth-error hidden"></div>
+          <button type="submit" class="btn btn-primary btn-large" id="loginSubmitBtn">
+            <span>Iniciar Autenticação</span> ➔
+          </button>
+        </form>
+
+        <!-- Estado de Espera: Push Notification Karl -->
+        <div class="auth-waiting hidden" id="authWaitingBox">
+          <div class="push-radar">
+            <div class="pulse-ring"></div>
+            <div class="pulse-ring delay"></div>
+            <div class="push-icon">📲</div>
+          </div>
+          <h3>Aguardando autorização no Karl...</h3>
+          <p>Enviamos uma <strong>notificação push</strong> para o seu dispositivo corporativo. Por favor, aprove para continuar.</p>
+          <div class="waiting-indicator">
+            <span class="spinner-small"></span> Verificando aprovação em tempo real...
+          </div>
+          <button type="button" class="btn btn-secondary btn-medium" id="cancelAuthBtn">
+            Cancelar
+          </button>
+        </div>
+
+        <div class="auth-footer">
+          <span>Autenticação corporativa criptografada Karl • TLS 1.3</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== INTERFACE PRINCIPAL ==================== -->
+    <!-- Top Bar (Otimizada para TV com alvos de toque grandes) -->
+    <header class="top-bar" id="mainHeader">
+      <div class="brand">
+        <span class="live-dot"></span>
+        <h1>DataGate <span>Live TV</span></h1>
+      </div>
+
+      <!-- Worker Ativo & Troca -->
+      <div class="active-worker-pill" id="activeWorkerPill">
+        <span class="status-indicator online"></span>
+        <span id="activeWorkerName">Nenhum worker selecionado</span>
+        <button class="btn btn-sm btn-accent" id="switchWorkerBtn" title="Selecionar outro computador ou worker">
+          🔄 Trocar Estação
+        </button>
+      </div>
+
+      <!-- Métricas em Tempo Real -->
+      <div class="stats-pill" id="statsPill">
+        <span id="fpsCount">0 FPS</span>
+        <span class="separator">•</span>
+        <span id="resolutionText">-- x --</span>
+      </div>
+
+      <!-- Ações Rápidas -->
+      <div class="actions-group">
+        <button class="btn btn-action" id="toggleVirtualKbBtn" title="Abrir teclado virtual na tela para digitação">
+          ⌨️ Teclado TV
+        </button>
+
+        <div class="mode-toggle">
+          <button id="modeViewBtn" class="toggle-btn" title="Apenas visualização">👁️ Ver</button>
+          <button id="modeControlBtn" class="toggle-btn active" title="Controle interativo touch/mouse">🎮 Controlar</button>
+        </div>
+
+        <div class="dropdown">
+          <button class="btn btn-action dropdown-btn" id="specialKeysBtn">⌨️ Atalhos ▾</button>
+          <div class="dropdown-content" id="specialKeysMenu">
+            <button data-key="win">⊞ Tecla Windows</button>
+            <button data-key="esc">Esc</button>
+            <button data-key="tab">Tab</button>
+            <button data-key="enter">Enter</button>
+            <button data-key="alttab">Alt + Tab</button>
+            <button data-key="ctrlc">Ctrl + C</button>
+            <button data-key="ctrlv">Ctrl + V</button>
+          </div>
+        </div>
+
+        <button class="btn btn-action btn-fullscreen" id="fullscreenBtn" title="Colocar em 100% Tela Cheia sem distrações">⛶ 100% Tela Cheia</button>
+        <button class="btn btn-danger btn-logout" id="logoutBtn" title="Sair da sessão">Sair</button>
+      </div>
+    </header>
+
+    <!-- Canvas Viewport -->
+    <main class="viewport" id="viewport">
+      <canvas id="screenCanvas"></canvas>
+      
+      <!-- Overlay para toque / clique direito -->
+      <div class="touch-ripple" id="touchRipple"></div>
+
+      <!-- Barra de Controle Imersiva da Tela Cheia (Surge ao arrastar para cima) -->
+      <div class="fullscreen-exit-dock hidden" id="fullscreenExitDock">
+        <div class="fs-dock-pill">
+          <div class="fs-swipe-hint">▲ Arraste para cima</div>
+          <div class="fs-dock-buttons">
+            <button class="btn btn-primary btn-medium" id="exitFullscreenBtn">
+              ⛶ Sair da Tela Cheia
+            </button>
+            <button class="btn btn-secondary btn-medium" id="fsSwitchWorkerBtn">
+              🔄 Trocar Estação
+            </button>
+            <button class="btn btn-secondary btn-medium" id="fsToggleKbBtn">
+              ⌨️ Teclado TV
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zona de Detecção de Arrastar para Cima no Rodapé -->
+      <div class="bottom-swipe-zone hidden" id="bottomSwipeZone">
+        <div class="swipe-indicator-bar"></div>
+      </div>
+
+      <!-- Overlay caso nenhum worker esteja selecionado -->
+      <div class="overlay hidden" id="noWorkerOverlay">
+        <div class="overlay-card">
+          <h2>Nenhuma Estação Selecionada</h2>
+          <p>Escolha um dos workers disponíveis para iniciar a transmissão na tela.</p>
+          <button class="btn btn-primary btn-large" id="openSelectWorkerBtn">
+            🖥️ Abrir Lista de Estações
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Botão Flutuante de Atalho para Teclado TV -->
+    <button class="floating-kb-trigger" id="floatingKbTrigger" title="Abrir/Fechar Teclado Virtual">
+      ⌨️ Teclado TV
+    </button>
+
+    <!-- ==================== TECLADO VIRTUAL PARA SMART TV & TOUCH ==================== -->
+    <div class="virtual-keyboard-dock hidden" id="virtualKeyboard">
+      <div class="kb-header">
+        <span class="kb-title">⌨️ Teclado Touch Smart TV</span>
+        <div class="kb-header-actions">
+          <button class="btn btn-sm btn-secondary" id="clearKbTextBtn">Limpar</button>
+          <button class="btn btn-sm btn-primary" id="closeKbBtn">Fechar ✕</button>
+        </div>
+      </div>
+
+      <div class="kb-rows">
+        <!-- Linha 1: Números -->
+        <div class="kb-row">
+          <button class="kb-key kb-func" data-key="Escape">ESC</button>
+          <button class="kb-key" data-key="1">1</button>
+          <button class="kb-key" data-key="2">2</button>
+          <button class="kb-key" data-key="3">3</button>
+          <button class="kb-key" data-key="4">4</button>
+          <button class="kb-key" data-key="5">5</button>
+          <button class="kb-key" data-key="6">6</button>
+          <button class="kb-key" data-key="7">7</button>
+          <button class="kb-key" data-key="8">8</button>
+          <button class="kb-key" data-key="9">9</button>
+          <button class="kb-key" data-key="0">0</button>
+          <button class="kb-key" data-key="-">-</button>
+          <button class="kb-key" data-key="=">=</button>
+          <button class="kb-key kb-backspace" data-key="Backspace">⌫ Apagar</button>
+        </div>
+
+        <!-- Linha 2: QWERTY -->
+        <div class="kb-row">
+          <button class="kb-key kb-func" data-key="Tab">TAB ⇥</button>
+          <button class="kb-key" data-key="q">Q</button>
+          <button class="kb-key" data-key="w">W</button>
+          <button class="kb-key" data-key="e">E</button>
+          <button class="kb-key" data-key="r">R</button>
+          <button class="kb-key" data-key="t">T</button>
+          <button class="kb-key" data-key="y">Y</button>
+          <button class="kb-key" data-key="u">U</button>
+          <button class="kb-key" data-key="i">I</button>
+          <button class="kb-key" data-key="o">O</button>
+          <button class="kb-key" data-key="p">P</button>
+          <button class="kb-key" data-key="[">[</button>
+          <button class="kb-key" data-key="]">]</button>
+          <button class="kb-key" data-key="\">\</button>
+        </div>
+
+        <!-- Linha 3: ASDF -->
+        <div class="kb-row">
+          <button class="kb-key kb-caps" id="kbCapsLock">CAPS 🔒</button>
+          <button class="kb-key" data-key="a">A</button>
+          <button class="kb-key" data-key="s">S</button>
+          <button class="kb-key" data-key="d">D</button>
+          <button class="kb-key" data-key="f">F</button>
+          <button class="kb-key" data-key="g">G</button>
+          <button class="kb-key" data-key="h">H</button>
+          <button class="kb-key" data-key="j">J</button>
+          <button class="kb-key" data-key="k">K</button>
+          <button class="kb-key" data-key="l">L</button>
+          <button class="kb-key" data-key="ç">Ç</button>
+          <button class="kb-key" data-key="~">~</button>
+          <button class="kb-key kb-enter" data-key="Enter">ENTER ↵</button>
+        </div>
+
+        <!-- Linha 4: ZXCV e Setas -->
+        <div class="kb-row">
+          <button class="kb-key kb-shift" id="kbShift">SHIFT ⇧</button>
+          <button class="kb-key" data-key="z">Z</button>
+          <button class="kb-key" data-key="x">X</button>
+          <button class="kb-key" data-key="c">C</button>
+          <button class="kb-key" data-key="v">V</button>
+          <button class="kb-key" data-key="b">B</button>
+          <button class="kb-key" data-key="n">N</button>
+          <button class="kb-key" data-key="m">M</button>
+          <button class="kb-key" data-key=",">,</button>
+          <button class="kb-key" data-key=".">.</button>
+          <button class="kb-key" data-key="/">/</button>
+          <button class="kb-key kb-arrow" data-key="ArrowUp">▲</button>
+          <button class="kb-key kb-special" data-action="win">⊞ Win</button>
+        </div>
+
+        <!-- Linha 5: Atalhos Rápidos e Espaço Amplo -->
+        <div class="kb-row">
+          <button class="kb-key kb-shortcut" data-action="ctrlc">Ctrl+C</button>
+          <button class="kb-key kb-shortcut" data-action="ctrlv">Ctrl+V</button>
+          <button class="kb-key kb-shortcut" data-action="alttab">Alt+Tab</button>
+          <button class="kb-key kb-arrow" data-key="ArrowLeft">◄</button>
+          <button class="kb-key kb-arrow" data-key="ArrowDown">▼</button>
+          <button class="kb-key kb-arrow" data-key="ArrowRight">►</button>
+          <button class="kb-key kb-space" data-key=" ">BARRA DE ESPAÇO</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL CENTRAL: SELEÇÃO DE WORKERS ==================== -->
+    <div class="modal" id="workersModal">
+      <div class="modal-card modal-large">
+        <div class="modal-header">
+          <div class="modal-title-lockup">
+            <h3>🖥️ Selecionar Estação Remota</h3>
+            <p>Escolha um dos workers ativos para conectar e controlar remotamente nesta Smart TV:</p>
+          </div>
+          <button class="modal-close" id="closeWorkersModal">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="workers-grid" id="workersListContainer">
+            <!-- Cards de workers inseridos dinamicamente aqui -->
+            <div class="worker-loading-state">
+              <span class="spinner"></span>
+              <p>Detectando estações e workers ativos na rede...</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <div class="refresh-indicator">
+            <span class="live-dot"></span> Atualização em tempo real ativa
+          </div>
+          <button class="btn btn-secondary btn-medium" id="refreshWorkersBtn">
+            🔄 Atualizar Lista
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

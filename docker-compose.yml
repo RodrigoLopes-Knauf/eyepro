@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Servidor Relay e Web Viewer em Node.js
+  remote-relay:
+    build:
+      context: ./server_node
+      dockerfile: Dockerfile
+    container_name: datagate-remote-relay
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - DATAGATE_URL=${DATAGATE_URL:-https://datagate.4-rl.net}
+      - WORKER_SECRET=${WORKER_SECRET:-${WORKER_AUTH_KEY:-}}
+      - WORKER_AUTH_KEY=${WORKER_SECRET:-${WORKER_AUTH_KEY:-}}
+    ports:
+      # Exposto na porta 8080 do host (ou mapeado para proxy reverso existente)
+      - "${PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - remote-net
+
+  # Proxy Reverso Automático com SSL (Let's Encrypt / ZeroSSL)
+  # Se você já tiver Nginx / Traefik / Cloudflare Tunnel na sua VPS, pode iniciar apenas o relay:
+  # docker compose up -d remote-relay
+  caddy:
+    image: caddy:2-alpine
+    container_name: datagate-remote-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - remote-relay
+    networks:
+      - remote-net
+
+networks:
+  remote-net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
