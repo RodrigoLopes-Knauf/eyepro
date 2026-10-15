@@ -1,31 +1,22 @@
 version: '3.8'
 
 # ========================================================
-# DataGate Remote Live - Servidor VPS (Cloudflare Ready)
-# Suba este arquivo na sua VPS junto com a pasta server_node
+# DataGate Remote Live - Servidor VPS (Coolify / Docker)
 # ========================================================
 
 services:
   remote-relay:
     build: .
-    container_name: datagate-remote-relay
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=8080
       - WORKER_SECRET=${WORKER_SECRET:-}
-    ports:
-      # Porta 8080 exposta para receber o tráfego do Cloudflare
-      - "${PORT:-8080}:8080"
+    expose:
+      - "8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
-    networks:
-      - remote-net
-
-networks:
-  remote-net:
-    driver: bridge
